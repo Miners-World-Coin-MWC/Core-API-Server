@@ -1,0 +1,12 @@
+rid = "api-server"
+cache = 3600  # Cache request for 1 hour
+secret = 'miners-world-coin'
+endpoint = "http://user:x@127.0.0.1:5579/" 
+host = "0.0.0.0"
+port = 1234
+debug = False
+block_page = 10
+tx_page = 25
+#faucet_interval = 14400
+#faucet_database = "faucet.rbx"
+#faucet_amount = 10
