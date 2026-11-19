@@ -186,6 +186,11 @@
 		text-shadow: 0 0 6px var(--accent-glow);
 		}
 
+		.api-doc-block .supply-readable {
+		color: #fbbf24;
+		font-weight: 700;
+		}
+
 		/* Run button */
 		.api-doc-block .btn-primary {
 		background: linear-gradient(180deg, #f59e0b, #d97706);

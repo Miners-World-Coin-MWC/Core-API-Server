@@ -7,13 +7,13 @@ from server.methods.block import Block
 from webargs import fields
 from server import stats
 from server import utils
-from functools import lru_cache
 import re
 import ipaddress
 
 blueprint = Blueprint("rest", __name__)
 
 offset_args = {"offset": fields.Int(missing=0)}
+range_args = {"offset": fields.Int(missing=30)}
 
 amount_args = {"amount": fields.Int(missing=0)}
 
@@ -45,10 +45,12 @@ def hash_by_height(height):
 
 @stats.rest
 @blueprint.route("/range/<int:height>", methods=["GET"])
-@use_args(offset_args, location="query")
+@use_args(range_args, location="query")
 def blocks_by_range(args, height):
     offset = args["offset"]
 
+    if offset < 1:
+        offset = 1
     if offset > 100:
         offset = 100
 
@@ -137,10 +139,23 @@ def estimate_fee():
     return jsonify(General().fee())
 
 
+# @stats.rest
+# @blueprint.route("/fee-estimates", methods=["GET"])
+# def fee_estimates():
+#     data = General().fee_estimates()
+#     status = 503 if data["error"] is not None else 200
+#     return jsonify(data), status
+
+
 @stats.rest
 @blueprint.route("/broadcast", methods=["POST"])
 def broadcast():
+    body = request.get_json(silent=True)
     raw = request.values.get("raw")
+    if raw is None and isinstance(body, dict):
+        raw = body.get("raw")
+    if not isinstance(raw, str) or not raw.strip():
+        return jsonify(utils.error_response("Missing signed transaction hex in 'raw'", 400)), 400
     return Transaction().broadcast(raw)
 
 
@@ -148,13 +163,20 @@ def broadcast():
 @blueprint.route("/supply", methods=["GET"])
 def supply():
     data = General().supply()
+    if data.get("error") is not None:
+        code = data["error"].get("code", 503)
+        status = code if isinstance(code, int) and 400 <= code <= 599 else 503
+        return jsonify(data), status
     return jsonify(utils.response(data))
 
 
 @stats.rest
 @blueprint.route("/supply/plain", methods=["GET"])
 def supply_plain():
-    data = int(utils.amount(General().supply()["supply"]))
+    result = General().supply()
+    if result.get("error") is not None:
+        return Response(result["error"].get("message", "Unable to calculate supply"), mimetype="text/plain", status=503)
+    data = int(utils.amount(result["supply"]))
     return Response(str(data), mimetype="text/plain")
 
 
@@ -179,7 +201,7 @@ def price():
     if data:
         return jsonify(data)  # Return the full data as JSON response
     else:
-        return jsonify({"error": "Unable to fetch price data"}), 500
+        return jsonify(utils.error_response("Unable to fetch price data", 502)), 502
 
 @stats.rest
 @blueprint.route("/peers", methods=["GET"])

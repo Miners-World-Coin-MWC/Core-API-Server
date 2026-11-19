@@ -30,6 +30,9 @@ def blocks_range(height):
     data = General().info()
     blocks = []
 
+    if data["error"] is not None:
+        return Response("Unable to read blockchain information", mimetype="text/plain", status=503)
+
     if not height:
         height = data["result"]["blocks"]
 
@@ -138,6 +141,33 @@ def transaction_info(thash):
 
 
 @stats.rest
+@blueprint.route("/tx/<string:thash>/status", methods=["GET"])
+def transaction_status(thash):
+    data = Transaction().info(thash)
+    if data["error"] is not None:
+        return Response("Transaction not found", mimetype="text/plain", status=404)
+
+    result = data["result"]
+    status = {"confirmed": result.get("height", -1) >= 0 and "blockhash" in result}
+    if status["confirmed"]:
+        status.update({
+            "block_height": result["height"],
+            "block_hash": result["blockhash"],
+            "block_time": result.get("blocktime"),
+        })
+    return jsonify(status)
+
+
+@stats.rest
+@blueprint.route("/tx/<string:thash>/hex", methods=["GET"])
+def transaction_hex(thash):
+    data = Transaction().info(thash)
+    if data["error"] is not None:
+        return Response("Transaction not found", mimetype="text/plain", status=404)
+    return Response(data["result"]["hex"], mimetype="text/plain")
+
+
+@stats.rest
 @blueprint.route("/tx/<string:thash>/outspends", methods=["GET"])
 def transaction_spent(thash):
     data = Transaction().spent(thash)
@@ -171,6 +201,32 @@ def transaction_spent(thash):
 
 
 @stats.rest
+@blueprint.route("/tx/<string:thash>/outspend/<int:vout>", methods=["GET"])
+def transaction_outspend(thash, vout):
+    data = Transaction().spent(thash)
+    if data["error"] is not None:
+        return Response("Transaction not found", mimetype="text/plain", status=404)
+    if vout < 0 or vout >= len(data["result"]):
+        return Response("Output index out of range", mimetype="text/plain", status=404)
+
+    output = data["result"][vout]
+    item = {"spent": output["spent"]}
+    if output["spent"]:
+        block = Block().height(output["height"])["result"]
+        item.update({
+            "txid": output["txid"],
+            "vin": output["vin"],
+            "status": {
+                "confirmed": True,
+                "block_height": block["height"],
+                "block_hash": block["hash"],
+                "block_time": block["time"],
+            },
+        })
+    return jsonify(item)
+
+
+@stats.rest
 @blueprint.route(
     "/address/<string:address>/txs", defaults={"thash": None}, methods=["GET"]
 )
@@ -201,6 +257,21 @@ def address_transactions(address, thash):
 
 
 @stats.rest
+@blueprint.route("/address/<string:address>/txs/mempool", methods=["GET"])
+def address_mempool_transactions(address):
+    data = Address().mempool(address, raw=True)
+    if data["error"] is not None:
+        return Response("Invalid address or address index unavailable", mimetype="text/plain", status=400)
+
+    transactions = []
+    for txid in data["result"]["tx"]:
+        transaction = Transaction().info(txid)
+        if transaction["error"] is None:
+            transactions.append(Esplora().transaction(transaction["result"]))
+    return jsonify(transactions)
+
+
+@stats.rest
 @blueprint.route("/block-height/<int:height>", methods=["GET"])
 def plain_block_hash(height):
     data = Block().height(height)
@@ -216,17 +287,55 @@ def plain_block_hash(height):
 @blueprint.route("/blocks/tip/height", methods=["GET"])
 def plain_tip_height():
     data = General().info()
+    if data["error"] is not None:
+        return Response("Unable to read blockchain tip", mimetype="text/plain", status=503)
     return Response(str(data["result"]["blocks"]), mimetype="text/plain")
+
+
+@stats.rest
+@blueprint.route("/blocks/tip/hash", methods=["GET"])
+def plain_tip_hash():
+    data = General().info()
+    if data["error"] is not None:
+        return Response("Unable to read blockchain tip", mimetype="text/plain", status=503)
+    return Response(data["result"]["bestblockhash"], mimetype="text/plain")
+
+
+@stats.rest
+@blueprint.route("/address/<string:address>/utxo", methods=["GET"])
+def address_utxos(address):
+    data = Address().unspent(address, 0)
+    if data["error"] is not None:
+        return Response("Invalid address or address index unavailable", mimetype="text/plain", status=400)
+
+    utxos = []
+    for item in data["result"]:
+        confirmed = item["height"] > 0
+        status = {"confirmed": confirmed}
+        if confirmed:
+            status["block_height"] = item["height"]
+        utxos.append({
+            "txid": item["txid"],
+            "vout": item["index"],
+            "value": item["value"],
+            "status": status,
+        })
+    return jsonify(utxos)
 
 
 @stats.rest
 @blueprint.route("/mempool/recent", methods=["GET"])
 def mempool_recent():
     data = General().mempool()
+    if data["error"] is not None:
+        return Response("Unable to read mempool", mimetype="text/plain", status=503)
     result = []
 
     for txid in data["result"]["tx"]:
-        transaction = Transaction().info(txid)["result"]
+        tx_data = Transaction().info(txid)
+        if tx_data["error"] is not None:
+            continue
+        transaction = tx_data["result"]
         item = Esplora().transaction(transaction)
 
         result.append(
@@ -239,6 +348,24 @@ def mempool_recent():
         )
 
     return jsonify(result)
+
+
+@stats.rest
+@blueprint.route("/mempool/txids", methods=["GET"])
+def mempool_txids():
+    data = General().mempool()
+    if data["error"] is not None:
+        return Response("Unable to read mempool", mimetype="text/plain", status=503)
+    return jsonify(data["result"].get("tx", []))
+
+
+# @stats.rest
+# @blueprint.route("/fee-estimates", methods=["GET"])
+# def fee_estimates():
+#     data = General().fee_estimates()
+#     if data["error"] is not None:
+#         return Response(data["error"]["message"], mimetype="text/plain", status=503)
+#     return jsonify(data["result"]["estimates"])
 
 
 @stats.rest

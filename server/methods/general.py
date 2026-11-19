@@ -2,7 +2,6 @@ from server import utils
 from server import cache
 import requests
 import config
-from functools import lru_cache  # Importing lru_cache
 
 
 class General:
@@ -40,9 +39,10 @@ class General:
         return data
 
     @classmethod
-    @cache.memoize(timeout=config.cache)
     def supply(cls):
         data = utils.make_request("getblockchaininfo")
+        if data["error"] is not None:
+            return data
         height = data["result"]["blocks"]
         result = utils.supply(height)
         result["height"] = height
@@ -64,6 +64,52 @@ class General:
         return utils.response({"feerate": utils.satoshis(0.01), "blocks": 30})
 
     @classmethod
+    @cache.memoize(timeout=60)
+    def fee_estimates(cls):
+        targets = (1, 2, 3, 6, 12, 24)
+        estimates = {}
+        errors = {}
+
+        for target in targets:
+            data = utils.make_request("estimatesmartfee", [target])
+            if data.get("error") is not None:
+                errors[str(target)] = data["error"].get("message", "Estimate unavailable")
+                continue
+
+            result = data.get("result") or {}
+            fee_rate = result.get("feerate")
+            if fee_rate is None:
+                errors[str(target)] = "Insufficient node data for this confirmation target"
+                continue
+
+            # estimatesmartfee reports MWC per kilobyte; expose satoshis per virtual byte.
+            try:
+                fee_rate = float(fee_rate)
+            except (TypeError, ValueError):
+                errors[str(target)] = "Node returned an invalid fee estimate"
+                continue
+            if fee_rate <= 0:
+                errors[str(target)] = "Insufficient node data for this confirmation target"
+                continue
+            estimates[str(target)] = round(fee_rate * 100000, 3)
+
+        if not estimates:
+            return utils.error_response(
+                "The node could not provide a fee estimate",
+                503,
+                details={"targets": errors},
+            )
+
+        return utils.response(
+            {
+                "estimates": estimates,
+                "unit": "sat/vB",
+                "source": "estimatesmartfee",
+                "unavailable_targets": errors,
+            }
+        )
+
+    @classmethod
     def mempool(cls):
         data = utils.make_request("getmempoolinfo")
 
@@ -78,16 +124,17 @@ class General:
 
     class CoinData:
         @classmethod
-        @lru_cache(maxsize=128)
+        @cache.memoize(timeout=300)
         def price(cls):
             link = "https://api.coinpaprika.com/v1/tickers/mwc-minersworldcoin"
             
             try:
-                response = requests.get(link)
+                response = requests.get(link, timeout=getattr(config, "http_timeout", 10))
+                response.raise_for_status()
                 data = response.json()
 
                 # Return the full data structure including quotes
                 return data  # This includes everything (price, volume, market cap, etc.)
-            except requests.exceptions.RequestException as e:
+            except (requests.exceptions.RequestException, ValueError) as e:
                 print(f"Error fetching price: {e}")
                 return None

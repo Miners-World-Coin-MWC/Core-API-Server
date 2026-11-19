@@ -1,0 +1,426 @@
+openapi: 3.1.0
+info:
+  title: MinersWorldCoin API
+  version: 1.0.0
+  description: >-
+    REST and Esplora-compatible HTTP endpoints for MinersWorldCoin. Most amounts
+    are integer satoshis (1 MWC = 100,000,000 satoshis). The /price and
+    /supply/plain endpoints have their own upstream/plain-text formats.
+servers:
+  - url: https://api.minersworld.org
+    description: Existing unversioned API
+  - url: https://api.minersworld.org/api/v1
+    description: Versioned main REST aliases; /esplora aliases preserve Esplora formats
+tags:
+  - name: Network
+  - name: Blocks
+  - name: Addresses
+  - name: Transactions
+  - name: Mempool
+  - name: Esplora
+paths:
+  /info:
+    get:
+      tags: [Network]
+      summary: Get current blockchain information
+      responses:
+        '200': {description: Blockchain information, calculated reward, supply and network hash rate}
+        '503': {$ref: '#/components/responses/ApiError'}
+  /price:
+    get:
+      tags: [Network]
+      summary: Get the MWC market ticker
+      responses:
+        '200': {description: Upstream ticker response}
+        '502': {$ref: '#/components/responses/ApiError'}
+  /height/{height}:
+    get:
+      tags: [Blocks]
+      summary: Get block data by height
+      parameters:
+        - {$ref: '#/components/parameters/Height'}
+        - name: offset
+          in: query
+          schema: {type: integer, default: 0, minimum: 0}
+      responses:
+        '200': {description: Block data with up to ten transaction IDs from offset}
+        '404': {$ref: '#/components/responses/ApiError'}
+  /hash/{height}:
+    get:
+      tags: [Blocks]
+      summary: Get block hash by height
+      parameters: [{$ref: '#/components/parameters/Height'}]
+      responses:
+        '200': {$ref: '#/components/responses/Json'}
+        '404': {$ref: '#/components/responses/ApiError'}
+  /range/{height}:
+    get:
+      tags: [Blocks]
+      summary: Get a range of blocks ending at a height
+      parameters:
+        - {$ref: '#/components/parameters/Height'}
+        - name: offset
+          in: query
+          description: Number of blocks to return. Defaults to 30 and is capped at 100.
+          schema: {type: integer, default: 30, minimum: 1, maximum: 100}
+      responses:
+        '200': {$ref: '#/components/responses/Json'}
+  /block/{hash}:
+    get:
+      tags: [Blocks]
+      summary: Get block data by hash
+      parameters: [{$ref: '#/components/parameters/Hash'}]
+      responses:
+        '200': {description: Block data with a paged transaction ID list}
+        '404': {$ref: '#/components/responses/ApiError'}
+  /header/{hash}:
+    get:
+      tags: [Blocks]
+      summary: Get block header by hash
+      parameters: [{$ref: '#/components/parameters/Hash'}]
+      responses:
+        '200': {$ref: '#/components/responses/Json'}
+  /balance/{address}:
+    get:
+      tags: [Addresses]
+      summary: Get an address balance
+      parameters: [{$ref: '#/components/parameters/Address'}]
+      responses:
+        '200': {description: Balance and received totals in satoshis}
+  /unspent/{address}:
+    get:
+      tags: [Addresses]
+      summary: List address UTXOs
+      parameters:
+        - {$ref: '#/components/parameters/Address'}
+        - name: amount
+          in: query
+          description: Minimum amount in satoshis
+          schema: {type: integer, default: 0, minimum: 0}
+      responses:
+        '200': {description: UTXO array with txid, output index, script, value and height}
+  /history/{address}:
+    get:
+      tags: [Addresses]
+      summary: Get address transaction history
+      parameters:
+        - {$ref: '#/components/parameters/Address'}
+        - name: offset
+          in: query
+          schema: {type: integer, default: 0, minimum: 0}
+      responses:
+        '200': {description: Up to ten transaction IDs and total transaction count}
+  /mempool/{address}:
+    get:
+      tags: [Addresses]
+      summary: Get unconfirmed address transactions
+      parameters: [{$ref: '#/components/parameters/Address'}]
+      responses:
+        '200': {$ref: '#/components/responses/Json'}
+  /transaction/{txid}:
+    get:
+      tags: [Transactions]
+      summary: Get decoded transaction details
+      parameters: [{$ref: '#/components/parameters/Txid'}]
+      responses:
+        '200': {description: Transaction inputs, outputs, raw hex and confirmation data}
+        '404': {$ref: '#/components/responses/ApiError'}
+  /decode/{raw}:
+    get:
+      tags: [Transactions]
+      summary: Decode raw transaction hex
+      parameters:
+        - name: raw
+          in: path
+          required: true
+          description: Raw transaction hex (long values may exceed URL length limits)
+          schema: {type: string}
+      responses:
+        '200': {$ref: '#/components/responses/Json'}
+  /broadcast:
+    post:
+      tags: [Transactions]
+      summary: Broadcast a signed raw transaction
+      description: The API relays the raw transaction to its node. It does not construct or sign transactions.
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [raw]
+              properties:
+                raw: {type: string, description: Signed raw transaction hex}
+          application/json:
+            schema:
+              type: object
+              required: [raw]
+              properties:
+                raw: {type: string, description: Signed raw transaction hex}
+      responses:
+        '200': {description: Node JSON-RPC result containing the accepted txid}
+        '400': {$ref: '#/components/responses/ApiError'}
+        '422': {$ref: '#/components/responses/ApiError'}
+        '502': {$ref: '#/components/responses/ApiError'}
+        '503': {$ref: '#/components/responses/ApiError'}
+  /mempool:
+    get:
+      tags: [Mempool]
+      summary: Get node mempool information
+      responses:
+        '200': {$ref: '#/components/responses/Json'}
+  /fee:
+    get:
+      tags: [Network]
+      summary: Get the legacy fixed fee recommendation
+      responses:
+        '200': {description: Fixed recommendation in satoshis and target blocks; not a live estimate}
+  /fee-estimates:
+    get:
+      tags: [Network]
+      summary: Get node fee estimates by confirmation target
+      responses:
+        '200': {description: Fee estimates in sat/vB keyed by target block count}
+        '503': {$ref: '#/components/responses/ApiError'}
+  /supply:
+    get:
+      tags: [Network]
+      summary: Get calculated circulating supply
+      responses:
+        '200': {description: Supply in satoshis with height and halving count}
+        '503': {$ref: '#/components/responses/ApiError'}
+  /supply/plain:
+    get:
+      tags: [Network]
+      summary: Get whole-MWC supply as plain text
+      responses:
+        '200':
+          description: Whole-MWC supply
+          content:
+            text/plain:
+              schema: {type: string}
+  /peers:
+    get:
+      tags: [Network]
+      summary: Get connected peer information
+      responses:
+        '200': {$ref: '#/components/responses/Json'}
+  /stats:
+    get:
+      tags: [Network]
+      summary: Get API process statistics
+      responses:
+        '200': {$ref: '#/components/responses/Json'}
+  /esplora/blocks:
+    get:
+      tags: [Esplora]
+      summary: Get recent blocks ending at the current tip
+      responses:
+        '200': {$ref: '#/components/responses/Json'}
+  /esplora/blocks/{height}:
+    get:
+      tags: [Esplora]
+      summary: Get recent blocks ending at a height
+      parameters: [{$ref: '#/components/parameters/Height'}]
+      responses:
+        '200': {$ref: '#/components/responses/Json'}
+  /esplora/blocks/tip/height:
+    get:
+      tags: [Esplora]
+      summary: Get current tip height as plain text
+      responses:
+        '200': {description: Tip height, content: {text/plain: {schema: {type: string}}}}
+  /esplora/blocks/tip/hash:
+    get:
+      tags: [Esplora]
+      summary: Get current tip hash as plain text
+      responses:
+        '200': {description: Tip hash, content: {text/plain: {schema: {type: string}}}}
+  /esplora/block-height/{height}:
+    get:
+      tags: [Esplora]
+      summary: Get block hash by height as plain text
+      parameters: [{$ref: '#/components/parameters/Height'}]
+      responses:
+        '200': {description: Block hash, content: {text/plain: {schema: {type: string}}}}
+  /esplora/block/{hash}:
+    get:
+      tags: [Esplora]
+      summary: Get Esplora block summary
+      parameters: [{$ref: '#/components/parameters/Hash'}]
+      responses:
+        '200': {$ref: '#/components/responses/Json'}
+        '404': {description: Block not found}
+  /esplora/block/{hash}/status:
+    get:
+      tags: [Esplora]
+      summary: Get block status
+      parameters: [{$ref: '#/components/parameters/Hash'}]
+      responses:
+        '200': {$ref: '#/components/responses/Json'}
+  /esplora/block/{hash}/txs/{start}:
+    get:
+      tags: [Esplora]
+      summary: Get a block transaction page
+      parameters:
+        - {$ref: '#/components/parameters/Hash'}
+        - name: start
+          in: path
+          required: true
+          schema: {type: integer, minimum: 0, multipleOf: 25}
+      responses:
+        '200': {$ref: '#/components/responses/Json'}
+        '400': {description: Start index must align with the configured page size}
+  /esplora/tx/{txid}:
+    get:
+      tags: [Esplora]
+      summary: Get Esplora transaction details
+      parameters: [{$ref: '#/components/parameters/Txid'}]
+      responses:
+        '200': {$ref: '#/components/responses/Json'}
+        '404': {description: Transaction not found}
+  /esplora/tx/{txid}/status:
+    get:
+      tags: [Esplora]
+      summary: Get transaction confirmation status
+      parameters: [{$ref: '#/components/parameters/Txid'}]
+      responses:
+        '200': {$ref: '#/components/responses/Json'}
+  /esplora/tx/{txid}/hex:
+    get:
+      tags: [Esplora]
+      summary: Get raw transaction hex as plain text
+      parameters: [{$ref: '#/components/parameters/Txid'}]
+      responses:
+        '200': {description: Transaction hex, content: {text/plain: {schema: {type: string}}}}
+  /esplora/tx/{txid}/outspends:
+    get:
+      tags: [Esplora]
+      summary: Get spend status for every transaction output
+      parameters: [{$ref: '#/components/parameters/Txid'}]
+      responses:
+        '200': {$ref: '#/components/responses/Json'}
+  /esplora/tx/{txid}/outspend/{vout}:
+    get:
+      tags: [Esplora]
+      summary: Get spend status for one transaction output
+      parameters:
+        - {$ref: '#/components/parameters/Txid'}
+        - name: vout
+          in: path
+          required: true
+          schema: {type: integer, minimum: 0}
+      responses:
+        '200': {$ref: '#/components/responses/Json'}
+        '404': {description: Transaction or output not found}
+  /esplora/tx:
+    post:
+      tags: [Esplora]
+      summary: Broadcast signed raw transaction hex
+      requestBody:
+        required: true
+        content:
+          text/plain:
+            schema: {type: string, description: Signed raw transaction hex}
+      responses:
+        '200': {description: Transaction ID as plain text}
+        '400': {description: Node rejected the transaction}
+  /esplora/address/{address}:
+    get:
+      tags: [Esplora]
+      summary: Get address statistics
+      parameters: [{$ref: '#/components/parameters/Address'}]
+      responses:
+        '200': {$ref: '#/components/responses/Json'}
+        '400': {description: Invalid address or index unavailable}
+  /esplora/address/{address}/utxo:
+    get:
+      tags: [Esplora]
+      summary: Get address unspent outputs
+      parameters: [{$ref: '#/components/parameters/Address'}]
+      responses:
+        '200': {$ref: '#/components/responses/Json'}
+  /esplora/address/{address}/txs:
+    get:
+      tags: [Esplora]
+      summary: Get first page of address transactions
+      parameters: [{$ref: '#/components/parameters/Address'}]
+      responses:
+        '200': {$ref: '#/components/responses/Json'}
+  /esplora/address/{address}/txs/chain/{txid}:
+    get:
+      tags: [Esplora]
+      summary: Get address transactions after a cursor
+      parameters:
+        - {$ref: '#/components/parameters/Address'}
+        - {$ref: '#/components/parameters/Txid'}
+      responses:
+        '200': {$ref: '#/components/responses/Json'}
+  /esplora/address/{address}/txs/mempool:
+    get:
+      tags: [Esplora]
+      summary: Get address mempool transactions
+      parameters: [{$ref: '#/components/parameters/Address'}]
+      responses:
+        '200': {$ref: '#/components/responses/Json'}
+  /esplora/mempool/recent:
+    get:
+      tags: [Esplora]
+      summary: Get recent mempool transactions
+      responses:
+        '200': {$ref: '#/components/responses/Json'}
+  /esplora/mempool/txids:
+    get:
+      tags: [Esplora]
+      summary: Get all current mempool transaction IDs
+      responses:
+        '200': {$ref: '#/components/responses/Json'}
+  /esplora/fee-estimates:
+    get:
+      tags: [Esplora]
+      summary: Get fee estimates in sat/vB keyed by confirmation target
+      responses:
+        '200': {$ref: '#/components/responses/Json'}
+        '503': {description: Node fee estimates unavailable}
+components:
+  parameters:
+    Height:
+      name: height
+      in: path
+      required: true
+      schema: {type: integer, minimum: 0}
+    Hash:
+      name: hash
+      in: path
+      required: true
+      schema: {type: string, minLength: 64, maxLength: 64}
+    Address:
+      name: address
+      in: path
+      required: true
+      schema: {type: string}
+    Txid:
+      name: txid
+      in: path
+      required: true
+      schema: {type: string, minLength: 64, maxLength: 64}
+  responses:
+    Json:
+      description: JSON response
+      content:
+        application/json:
+          schema: {}
+    ApiError:
+      description: Error response
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              error:
+                type: object
+                properties:
+                  code: {type: integer}
+                  message: {type: string}
+              id: {type: string}
+              result: {}

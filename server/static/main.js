@@ -171,6 +171,19 @@ var uri = window.location.protocol + '//' + window.location.host
 						}
 					]
 				}, {
+					'name': '/hash/int:height',
+					'example': '/hash/1',
+					'description': 'Return the block hash at a given height.',
+					'base': '/hash/',
+					'method': 'GET',
+					'id': 'hash-by-height',
+					'params': [{
+						'title': 'height',
+						'description': 'Block height',
+						'example': 1,
+						'key': true
+					}]
+				}, {
 					'name': '/mempool',
 					'example': '/mempool',
 					'description': 'This method return info about mempool.',
@@ -189,11 +202,29 @@ var uri = window.location.protocol + '//' + window.location.host
 					'method': 'GET',
 					'id': 'supply'
 				}, {
+					'name': '/supply/plain',
+					'example': '/supply/plain',
+					'description': 'Return circulating supply as a whole-MWC plain-text value.',
+					'method': 'GET',
+					'id': 'supply-plain'
+				}, {
+					'name': '/stats',
+					'example': '/stats',
+					'description': 'Return API uptime, request counts, and active subscription counts.',
+					'method': 'GET',
+					'id': 'api-stats'
+				}, {
 					'name': '/fee',
 					'example': '/fee',
 					'description': 'This method return recomended transaction fee.',
 					'method': 'GET',
 					'id': 'fee'
+				}, {
+					'name': '/fee-estimates',
+					'example': '/fee-estimates',
+					'description': 'Return live node fee estimates by confirmation target in sat/vB.',
+					'method': 'GET',
+					'id': 'fee-estimates'
 				}, {
 					'name': '/decode/string:raw',
 					'example': '/decode/010000000001010000000000000000000000000000000000000000000000000000000000000000ffffffff200162042e1b57690877ffff7c000000000f2f2f6e6f64655374726174756d2f2f00000000040000000000000000266a24aa21a9ede2f61c3f71d1defd3fa999dfa36953755c690689799962b48bebd836974e8cf9005ed0b2000000001976a914304e4c83aa793b3ca04ea0d979b2e68ab15f7b6b88ac008c8647000000001976a914419588e5f5831c95fab98e30cf80755f5a324d3588ac0064fc4e050000001976a91483f381d735e04c09d0a60130f6caa0f80ae6824b88ac0120000000000000000000000000000000000000000000000000000000000000000000000000',
@@ -321,7 +352,25 @@ var uri = window.location.protocol + '//' + window.location.host
 			}
 
 			function display(tag, data) {
+				if (tag === 'supply-plain') {
+					var wholeMwc = Number(String(data).trim())
+					var display = Number.isFinite(wholeMwc)
+						? `${wholeMwc.toLocaleString('en-GB')} MWC`
+						: String(data)
+					$(`#${tag} pre`).text(display).addClass('json-editor-blackbord').removeClass('d-none')
+					$(`#${tag} span.loading`).addClass('d-none')
+					return
+				}
 				new JsonEditor(`#${tag} pre`, data)
+				$(`#${tag} .json-literal-number`).each(function() {
+					var number = $(this)
+					var raw = number.text()
+					var key = number.closest('li').children('.json-property').text().replace(/\"/g, '')
+					if (key === 'supply' && /^\d+$/.test(raw)) {
+						var mwc = Number(raw) / 100000000
+						number.after(`<span class="supply-readable"> (${mwc.toLocaleString('en-GB', { maximumFractionDigits: 8 })} MWC)</span>`)
+					}
+				})
 				$(`#${tag} pre`).removeClass('d-none')
 				$(`#${tag} span.loading`).addClass('d-none')
 			}

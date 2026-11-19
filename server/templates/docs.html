@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="en">
+	<head>
+		<meta charset="utf-8">
+		<meta name="viewport" content="width=device-width, initial-scale=1">
+		<title>MinersWorldCoin API — Documentation</title>
+		<meta name="description" content="Endpoint reference and transaction guide for the MinersWorldCoin API.">
+		<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/twitter-bootstrap/4.3.1/css/bootstrap.min.css">
+		<link href="static/favicon.ico" rel="icon" type="image/x-icon">
+		<link href="https://fonts.googleapis.com/css?family=Source+Sans+Pro&display=swap" rel="stylesheet">
+		<link rel="stylesheet" href="static/style.css">
+		<style>
+			.docs-page .docs-card { background: var(--bg-card); border: 1px solid var(--border-soft); border-radius: 12px; }
+			.docs-page .table { color: var(--text-main); }
+			.docs-page .table td, .docs-page .table th { border-color: var(--border-soft); vertical-align: top; }
+			.docs-page .table thead th { color: var(--accent-soft); }
+			.docs-page .muted { color: var(--text-muted); }
+			.docs-page pre { background: #020617; color: #e5e7eb; border: 1px solid var(--border-soft); border-radius: 8px; padding: 1rem; overflow-x: auto; }
+			.docs-page code { overflow-wrap: anywhere; }
+			.docs-page h2 { border-bottom: 1px solid var(--border-soft); padding-bottom: .45rem; margin-top: 2rem; }
+		</style>
+	</head>
+	<body>
+		<nav class="navbar fixed-top navbar-expand-lg">
+			<div class="container">
+				<a href="/" class="navbar-brand d-flex align-items-center"><img id="logo" src="static/mwc.png" alt="MWC Logo"><b>API</b></a>
+				<button class="navbar-toggler" type="button" data-toggle="collapse" data-target="#navbarResponsive" aria-controls="navbarResponsive" aria-expanded="false" aria-label="Toggle navigation"><span class="navbar-toggler-icon"></span></button>
+				<div class="collapse navbar-collapse" id="navbarResponsive">
+					<ul class="navbar-nav ml-auto align-items-lg-center">
+						<li class="nav-item"><a href="/" class="nav-link">API Explorer</a></li>
+						<li class="nav-item"><a href="/docs" class="nav-link" aria-current="page">Documentation</a></li>
+						<li class="nav-item"><a href="https://minersworld.org" class="nav-link" target="_blank" rel="noopener">Website</a></li>
+						<li class="nav-item"><a href="https://miners-world-coin-mwc.github.io/explorer/" class="nav-link" target="_blank" rel="noopener">Explorer</a></li>
+						<li class="nav-item"><a href="https://github.com/Miners-World-Coin-MWC" class="nav-link" target="_blank" rel="noopener">GitHub</a></li>
+						<li class="nav-item"><button id="themeToggle" class="btn btn-sm nav-link" style="border:none;background:none;">🌗</button></li>
+					</ul>
+				</div>
+			</div>
+		</nav>
+
+		<main class="container docs-page">
+			<header class="mb-4">
+				<h1>MinersWorldCoin API documentation</h1>
+				<p class="lead">Reference for the REST endpoints, Esplora-compatible routes, and Socket.IO events exposed by this Python server.</p>
+				<p>REST base URL: <code>https://api.minersworld.org</code>. The root page is the interactive <a href="/">API explorer</a>; its request cards remain unchanged.</p>
+				<p>Machine-readable contract: <a href="/openapi.yaml">OpenAPI 3.1 YAML</a>. Existing paths remain available; the main REST routes also have versioned aliases under <code>/api/v1</code>, where JSON responses use a standard envelope and JSON errors use HTTP error statuses. The <code>/api/v1/esplora</code> aliases preserve Esplora response formats.</p>
+			</header>
+
+			<section class="docs-card card mb-4"><div class="card-body">
+				<h2>Response and amount conventions</h2>
+				<p>Most REST methods return an object containing <code>result</code>, <code>error</code>, and <code>id</code> (normally <code>api-server</code>). Node errors are returned in <code>error</code>. A few endpoints intentionally return plain text, arrays, or a different JSON shape; these are called out below.</p>
+				<p>In the main API, monetary amounts are integer satoshis: <strong>1 MWC = 100,000,000 satoshis</strong>. Keep amounts as integers when building transactions. The <code>/price</code> endpoint is a CoinPaprika response in market units, not satoshis. The <code>/supply/plain</code> endpoint returns whole MWC as plain text.</p>
+				<p class="mb-0">The explorer adds a circulating-supply equivalent in MWC alongside the raw satoshi supply. The API's JSON response remains unchanged.</p>
+			</div></section>
+
+			<section class="docs-card card mb-4"><div class="card-body">
+				<h2>Constructing, signing, and broadcasting transactions</h2>
+				<p>This server does not create transactions or sign them. It provides UTXO lookup, transaction decoding, and a node relay for already-signed raw transaction hex. Private keys stay in the wallet or signing client.</p>
+				<ol>
+					<li>Call <code>GET /unspent/{address}</code> to retrieve spendable outputs. Each output identifies its source with <code>txid</code> and <code>index</code> (the vout) and includes the locking <code>script</code> and value in satoshis. Use an amount filter only if useful; <code>amount</code> is integer satoshis.</li>
+					<li>Select inputs whose total covers the recipient amount and fee. Construct outputs for the recipient and, if needed, a change address you control. The difference between input total and output total is the transaction fee. Recheck inputs immediately before signing because another spend can invalidate them.</li>
+					<li>Build and sign with a wallet library configured for MWC's address and transaction rules. Each input must spend the referenced output and be signed by the key that controls it. Use the wallet's supported scripts and signature-hash behavior; this API cannot sign for you.</li>
+					<li>Call <code>GET /decode/{raw-hex}</code> on the signed transaction and inspect inputs, outputs, amounts, and change before broadcasting. Decoding only parses the transaction; it does not promise mempool acceptance.</li>
+				<li>POST the signed hex to <code>/broadcast</code> as URL-encoded form field <code>raw</code>, or as JSON <code>{"raw":"…"}</code>. The Python handler passes it to the node's <code>sendrawtransaction</code> RPC. On success, the node returns a transaction ID. A returned ID means accepted by that node, not confirmed in a block.</li>
+					<li>Track the transaction with <code>/transaction/{txid}</code> and the address with <code>/mempool/{address}</code>. After it is mined, transaction details include block metadata and confirmations.</li>
+				</ol>
+				<p>The legacy <code>/fee</code> route remains hard-coded to <code>feerate: 1000000</code> and <code>blocks: 30</code>. That value is 1,000,000 satoshis (0.01 MWC), not a per-byte quote from current mempool conditions. Use <code>/fee-estimates</code> for the node's current smart-fee estimates in sat/vB; estimate availability depends on node history.</p>
+				<p>The companion <a href="https://github.com/Miners-World-Coin-MWC/Api-Server" target="_blank" rel="noopener">MWC API and wallet project</a> documents these network parameters for wallet configuration: public-key address prefix <code>20</code>, script address prefix <code>10</code>, WIF prefix <code>123</code>, extended public/private key versions <code>0488B21E</code>/<code>0488ADE4</code>, and Bech32 HRP <code>mwc</code>. Bitcoin mainnet defaults will derive incompatible addresses.
+				<pre><code>curl "https://api.minersworld.org/unspent/98AUvgXPjAdKHj3FqwAPJNpd8XergXBL59"
+
+curl -X POST "https://api.minersworld.org/broadcast" \
+  --data-urlencode "raw=SIGNED_RAW_TRANSACTION_HEX"</code></pre>
+				<p class="mb-0">For an Esplora-style relay, <code>POST /esplora/tx</code> instead expects the raw hex directly as a plain-text request body and returns the txid as plain text.</p>
+			</div></section>
+
+			<section class="docs-card card mb-4"><div class="card-body">
+				<h2>Main REST endpoints</h2>
+				<div class="table-responsive"><table class="table table-sm">
+					<thead><tr><th>Method / path</th><th>Inputs</th><th>Result</th></tr></thead><tbody>
+					<tr><td><code>GET /info</code></td><td>None</td><td>Node blockchain info, with calculated supply, reward, and network hash rate added.</td></tr>
+					<tr><td><code>GET /price</code></td><td>None</td><td>CoinPaprika MWC ticker JSON. Not wrapped in the standard response envelope; upstream failures return HTTP 500.</td></tr>
+					<tr><td><code>GET /height/{height}</code></td><td>Block height; optional <code>?offset=0</code></td><td>Block data. Returns at most 10 transaction IDs starting at offset.</td></tr>
+					<tr><td><code>GET /hash/{height}</code></td><td>Block height</td><td>Block hash at the given height.</td></tr>
+					<tr><td><code>GET /range/{height}?offset={count}</code></td><td>Ending height; count defaults to 30 and is capped at 100</td><td>Block summaries, newest first. Values below 1 are treated as 1.</td></tr>
+					<tr><td><code>GET /block/{hash}</code></td><td>Block hash; optional <code>?offset=0</code></td><td>Block data with at most 10 transaction IDs from offset.</td></tr>
+					<tr><td><code>GET /header/{hash}</code></td><td>Block hash</td><td>Block header fields; <code>txcount</code> replaces node field <code>nTx</code>.</td></tr>
+					<tr><td><code>GET /transaction/{txid}</code></td><td>Transaction ID</td><td>Transaction details, raw hex, inputs, outputs, values in satoshis, and block metadata when confirmed. Unconfirmed height is <code>-1</code>.</td></tr>
+					<tr><td><code>GET /balance/{address}</code></td><td>Address</td><td>Node address balance and received totals in satoshis.</td></tr>
+					<tr><td><code>GET /unspent/{address}?amount={sats}</code></td><td>Address; integer satoshi minimum filter defaulting to 0</td><td>UTXOs with txid, output index, locking script, value in satoshis, and height.</td></tr>
+					<tr><td><code>GET /history/{address}?offset={n}</code></td><td>Address; offset defaults to 0</td><td>Up to 10 transaction IDs, newest first, and full <code>txcount</code>.</td></tr>
+					<tr><td><code>GET /mempool/{address}</code></td><td>Address</td><td>Unconfirmed transactions involving the address and their count.</td></tr>
+					<tr><td><code>GET /mempool</code></td><td>None</td><td>Node mempool statistics and transaction IDs.</td></tr>
+					<tr><td><code>GET /fee</code></td><td>None</td><td>Legacy fixed recommendation: 1,000,000 satoshis and <code>blocks: 30</code>.</td></tr>
+					<!-- <tr><td><code>GET /fee-estimates</code></td><td>None</td><td>Live node estimates in sat/vB for targets 1, 2, 3, 6, 12, and 24 blocks; unavailable targets are returned separately. HTTP 503 if the node cannot estimate any target.</td></tr> -->
+					<tr><td><code>GET /supply</code></td><td>None</td><td>Calculated height, halvings, and supply in satoshis.</td></tr>
+					<tr><td><code>GET /supply/plain</code></td><td>None</td><td>Whole-MWC supply as plain text.</td></tr>
+					<tr><td><code>GET /peers</code></td><td>None</td><td>Peer IP, software version, and ping time. Shape is <code>{result, error}</code>, without <code>id</code>.</td></tr>
+					<tr><td><code>GET /decode/{raw}</code></td><td>Raw transaction hex in the path</td><td>Node-decoded transaction. Long raw hex can exceed URL limits; parsing does not imply acceptance.</td></tr>
+					<tr><td><code>POST /broadcast</code></td><td>URL-encoded form field <code>raw</code> or JSON object with a <code>raw</code> string</td><td>Node JSON-RPC result from <code>sendrawtransaction</code>. Missing raw hex returns HTTP 400.</td></tr>
+					<tr><td><code>GET /stats</code></td><td>None</td><td>Server uptime, REST/Socket.IO counters, active connections, subscribers, and watched-address counts.</td></tr>
+					</tbody></table></div>
+			</div></section>
+
+			<section class="docs-card card mb-4"><div class="card-body">
+				<h2>Esplora-compatible routes</h2>
+				<p>All routes below are prefixed with <code>/esplora</code>. The server uses <code>block_page</code> and <code>tx_page</code> settings (currently 10 and 25).</p>
+				<div class="table-responsive"><table class="table table-sm"><thead><tr><th>Method / path</th><th>Result</th></tr></thead><tbody>
+					<tr><td><code>GET /block/{hash}</code></td><td>Esplora block summary; unknown block returns 404.</td></tr>
+					<tr><td><code>GET /blocks</code>, <code>GET /blocks/{height}</code></td><td>Recent block summaries up to the selected height (tip when omitted).</td></tr>
+					<tr><td><code>GET /block/{hash}/status</code></td><td>Returns <code>in_best_chain: true</code> when block lookup succeeds, plus height and next block hash. The handler does not independently verify chain membership.</td></tr>
+					<tr><td><code>GET /block/{hash}/txs/{start}</code></td><td>Page of transaction details; start must be divisible by configured <code>tx_page</code> (25).</td></tr>
+					<tr><td><code>GET /block-height/{height}</code></td><td>Plain-text block hash.</td></tr>
+					<tr><td><code>GET /blocks/tip/height</code></td><td>Plain-text current tip height.</td></tr>
+					<tr><td><code>GET /blocks/tip/hash</code></td><td>Plain-text current tip hash.</td></tr>
+					<tr><td><code>GET /tx/{txid}</code></td><td>Esplora-format transaction with status, vin/vout, value, and fee.</td></tr>
+					<tr><td><code>GET /tx/{txid}/status</code>, <code>/tx/{txid}/hex</code></td><td>Transaction confirmation state or raw hex as plain text.</td></tr>
+					<tr><td><code>GET /tx/{txid}/outspends</code></td><td>Spent flag for each output; spent entries include spending tx/input and block status.</td></tr>
+					<tr><td><code>GET /tx/{txid}/outspend/{vout}</code></td><td>Spend status for one output index.</td></tr>
+					<tr><td><code>GET /address/{address}</code></td><td>Address chain/mempool statistics. Output counts are currently placeholders (zero).</td></tr>
+					<tr><td><code>GET /address/{address}/utxo</code></td><td>Address UTXOs in Esplora format with funding status.</td></tr>
+					<tr><td><code>GET /address/{address}/txs</code></td><td>First page of address transactions.</td></tr>
+					<tr><td><code>GET /address/{address}/txs/chain/{last_txid}</code></td><td>Next page after the specified transaction cursor.</td></tr>
+					<tr><td><code>GET /address/{address}/txs/mempool</code></td><td>Unconfirmed transactions affecting the address.</td></tr>
+					<tr><td><code>GET /mempool/recent</code></td><td>Recent mempool summaries: txid, fee, weight (field named <code>vsize</code>), and output value.</td></tr>
+					<tr><td><code>GET /mempool/txids</code></td><td>All transaction IDs currently in the node mempool.</td></tr>
+					<!-- <tr><td><code>GET /fee-estimates</code></td><td>Current smart-fee estimates in sat/vB by target block count.</td></tr> -->
+					<tr><td><code>POST /tx</code></td><td>Plain-text body containing signed raw transaction hex; returns plain-text txid, or HTTP 400 with node error.</td></tr>
+				</tbody></table></div>
+			</div></section>
+
+			<section class="docs-card card mb-5"><div class="card-body">
+				<h2>Socket.IO events</h2>
+				<p>Connect a Socket.IO client to the API origin using the default <code>/socket.io</code> path. Request handlers return their result through the event acknowledgement. Arguments are positional: send a string, number, or array as appropriate rather than an object with named fields. Connection and disconnection lifecycle events are handled automatically by the server.</p>
+				<div class="table-responsive"><table class="table table-sm"><thead><tr><th>Event</th><th>Argument(s)</th><th>Behavior</th></tr></thead><tbody>
+					<tr><td><code>general.info</code>, <code>general.fee</code></td><td>None</td><td>Same result as REST <code>/info</code> and <code>/fee</code>.</td></tr>
+					<tr><td><code>address.unspent</code></td><td>Address string; optional amount integer</td><td>Address UTXOs.</td></tr>
+					<tr><td><code>address.balance</code>, <code>address.history</code>, <code>address.mempool</code>, <code>address.mempool.raw</code></td><td>Address string</td><td>Address data; <code>.raw</code> returns transaction IDs only.</td></tr>
+					<tr><td><code>address.check</code></td><td>Array of address strings</td><td>Addresses with history.</td></tr>
+					<tr><td><code>transaction.info</code></td><td>Transaction ID string</td><td>Transaction details.</td></tr>
+					<tr><td><code>transaction.batch</code></td><td>Array of transaction ID strings</td><td>Envelope containing a result for each transaction.</td></tr>
+					<tr><td><code>transaction.broadcast</code></td><td>Signed raw transaction hex string</td><td>Relays through node <code>sendrawtransaction</code>.</td></tr>
+					<tr><td><code>subscribe.blocks</code>, <code>unsubscribe.blocks</code></td><td>None</td><td>Manage block subscription; updates arrive as <code>block.update</code> with height and hash.</td></tr>
+					<tr><td><code>subscribe.address</code>, <code>unsubscribe.address</code></td><td>Address string</td><td>Manage address subscription; updates arrive as <code>address.update</code>. Height/hash are null for mempool activity.</td></tr>
+				</tbody></table></div>
+				<p class="muted mb-0">The explorer page intentionally remains the live endpoint runner; this documentation page explains the behavior without replacing or renaming its endpoint cards.</p>
+			</div></section>
+		</main>
+		<footer class="mb-3"><div class="container text-center text-light">Made with ❤️ by <a target="_blank" rel="noopener" href="https://github.com/Miners-World-Coin-MWC">MinersWorldCoin Team</a></div></footer>
+		<script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/2.1.1/jquery.min.js"></script>
+		<script src="https://cdnjs.cloudflare.com/ajax/libs/popper.js/1.14.7/umd/popper.min.js"></script>
+		<script src="https://cdnjs.cloudflare.com/ajax/libs/twitter-bootstrap/4.3.1/js/bootstrap.min.js"></script>
+		<script src="static/toggle.js"></script>
+	</body>
+</html>

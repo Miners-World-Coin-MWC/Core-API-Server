@@ -8,6 +8,13 @@ def dead_response(message="Invalid Request", rid=config.rid):
     return {"error": {"code": 404, "message": message}, "id": rid}
 
 
+def error_response(message, code=502, rid=config.rid, details=None):
+    error = {"code": code, "message": message}
+    if details is not None:
+        error["details"] = details
+    return {"error": error, "id": rid, "result": None}
+
+
 def response(result, error=None, rid=config.rid):
     return {"error": error, "id": rid, "result": result}
 
@@ -17,9 +24,19 @@ def make_request(method, params=[]):
     data = json.dumps({"id": config.rid, "method": method, "params": params})
 
     try:
-        return requests.post(config.endpoint, headers=headers, data=data).json()
-    except Exception:
-        return dead_response()
+        result = requests.post(
+            config.endpoint,
+            headers=headers,
+            data=data,
+            timeout=getattr(config, "rpc_timeout", 10),
+        ).json()
+        return result
+    except requests.exceptions.Timeout:
+        return error_response("Blockchain node request timed out", 504)
+    except requests.exceptions.ConnectionError:
+        return error_response("Unable to connect to the blockchain node", 503)
+    except (requests.exceptions.RequestException, ValueError):
+        return error_response("Invalid response from the blockchain node", 502)
 
 
 def reward(height):
